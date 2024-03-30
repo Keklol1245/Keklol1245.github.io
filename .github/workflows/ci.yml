@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y p7zip-full xterm
 
-      - run: npm run build:release
+      - run: npm run build:default
         env:
           NPM_CONFIG_UNSAFE_PERM: true
 
