@@ -2,7 +2,6 @@ name: CI
 on: [push, pull_request]
 env:
   HTTPTOOLKIT_SERVER_DISABLE_AUTOUPDATE: 1 # Don't try to autoupdate during tests etc
-  UI_VERSION: ${{ github.sha }}
 jobs:
   build:
     name: Build & test
@@ -48,7 +47,6 @@ jobs:
 
   publish-pages:
     name: Publish Pages
-    if: github.event_name == 'push' && github.ref == 'refs/heads/fork'
     runs-on: ubuntu-latest
     needs: build
     environment:
