@@ -1,152 +1,76 @@
 name: CI
 on: [push, pull_request]
 env:
-  UI_VERSION: ${{ github.sha }}
+  HTTPTOOLKIT_SERVER_DISABLE_AUTOUPDATE: 1 # Don't try to autoupdate during tests etc
 jobs:
   build:
     name: Build & test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    container:
+      image: httptoolkit/act-build-base:v3.0.0
     steps:
       - uses: actions/checkout@v4
 
-      # Install Node
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.8.0
-          cache: 'npm'
+          node-version: 20.11.1
 
-      # Install & build & test:
+      - run: npm install -g npm@^8
+
+      - name: Set up JDK 11 for Java testing
+        uses: actions/setup-java@v5
+        with:
+          java-version: 11
+          distribution: adopt-hotspot
+
       - run: npm ci
-
-      - run: npm run test:unit
-
-      # Build & run normal integration tests:
-      - name: Build & test
-        run: npm run test:integration
-        if: github.ref != 'refs/heads/main'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # To pull server without rate limit issues in CI
+          NPM_CONFIG_UNSAFE_PERM: true
 
-      # Build with secrets & run integrations tests, on main only:
-      - name: Build & test for production release
-        run: npm run test:integration
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - run: npm run build:src
+
+      - run: |
+          curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+          curl -sL https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full xterm
+
+      - run: npm run build:release
         env:
-          POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_ORG: http-toolkit
-          SENTRY_PROJECT: httptoolkit-ui
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # To pull server without rate limit issues in CI
+          NPM_CONFIG_UNSAFE_PERM: true
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
-          path: dist/*
+          name: distributables
+          path: build/dist/*
           if-no-files-found: error
 
-  publish-netlify:
-    name: Deploy ${{ (github.ref == 'refs/heads/main' && 'to Netlify production') || 'Netlify preview' }}
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    needs: build
+  publish:
+    name: Publish a release
+    runs-on: "ubuntu-22.04"
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
+      - name: Get our distributables
+        uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist
+          name: distributables
+          path: distributables
 
-      - name: Deploy to Netlify
-        uses: nwtgck/actions-netlify@v3
+      - name: Upload server release
+        uses: svenstaro/upload-release-action@v2
         with:
-          publish-dir: './dist'
-          production-branch: main # Main goes to prod, others do deploy previews
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          deploy-message: GHA Deploy - ${{ github.event.head_commit.message }}
-          enable-commit-status: true
-          enable-pull-request-comment: false
-          enable-commit-comment: false
-          netlify-config-path: ./netlify.toml
-          alias: ${{ github.sha }}
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        timeout-minutes: 1
+          repo_token: ${{ secrets.PAT }}
+          file: ./distributables/*/*
+          file_glob: true
+          tag: ${{ github.ref }}
 
-  publish-docker:
-    name: Build & publish container to Docker Hub
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/dependabot/')
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
+      - name: Upload latest manifest
+        uses: svenstaro/upload-release-action@v2
         with:
-          name: dist
-          path: dist
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          images: httptoolkit/ui
-          tags: |
-            type=raw,value=prod,enable={{is_default_branch}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha
-
-      - name: Build and publish to Docker Hub
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  publish-scaleway:
-    name: Deploy to Scaleway
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    container: httptoolkit/act-build-base
-    needs: publish-docker
-    steps:
-      - name: Redeploy container
-        uses: thibaultchazal/scaleway-serverless-container-deploy-action@0d290edda0c3359e51442bd8bf730eafef4e290f
-        with:
-          container_id: ${{ vars.SCW_API_CONTAINER_ID }}
-          region: ${{ vars.SCW_API_CONTAINER_REGION }}
-          secret_key: ${{ secrets.SCW_SECRET_KEY }}
-          registry_image_url: "registry.hub.docker.com/httptoolkit/ui:prod"
-
-      - name: Redeploy failover container
-        uses: thibaultchazal/scaleway-serverless-container-deploy-action@0d290edda0c3359e51442bd8bf730eafef4e290f
-        with:
-          container_id: ${{ vars.SCW_FAILOVER_API_CONTAINER_ID }}
-          region: ${{ vars.SCW_FAILOVER_API_CONTAINER_REGION }}
-          secret_key: ${{ secrets.SCW_SECRET_KEY }}
-          registry_image_url: "registry.hub.docker.com/httptoolkit/ui:prod"
-
-      - name: Flush CDN cache
-        run: |
-          # Wait a little - the reploy commands don't wait for the container to start up
-          sleep 30
-
-          # Clear CDN cache to re-request content:
-          curl -f --request POST \
-            --url https://api.bunny.net/pullzone/$PULL_ZONE_ID/purgeCache \
-            --header "AccessKey: $BUNNY_SITE_API_KEY"
-        env:
-          PULL_ZONE_ID: 1110200
-          BUNNY_SITE_API_KEY: ${{ secrets.BUNNY_SITE_API_KEY }}
+          repo_token: ${{ secrets.PAT }}
+          file: ./distributables/latest-manifest/*
+          file_glob: true
+          tag: latest-manifest
+          overwrite: true
