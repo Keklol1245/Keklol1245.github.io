@@ -2,10 +2,11 @@ name: CI
 on: [push, pull_request]
 env:
   HTTPTOOLKIT_SERVER_DISABLE_AUTOUPDATE: 1 # Don't try to autoupdate during tests etc
+  UI_VERSION: ${{ github.sha }}
 jobs:
   build:
     name: Build & test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     container:
       image: httptoolkit/act-build-base:v3.0.0
     steps:
@@ -27,7 +28,7 @@ jobs:
         env:
           NPM_CONFIG_UNSAFE_PERM: true
 
-      - run: npm run build:src
+      - run: npm run build:default
 
       - run: |
           curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
