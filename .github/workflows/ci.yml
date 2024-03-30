@@ -28,7 +28,7 @@ jobs:
         env:
           NPM_CONFIG_UNSAFE_PERM: true
 
-      - run: npm run build:default
+      - run: npm run build
 
       - run: |
           curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
@@ -42,8 +42,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: distributables
-          path: build/dist/*
+          name: dist
+          path: dist/*
           if-no-files-found: error
 
   publish:
