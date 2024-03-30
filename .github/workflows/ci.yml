@@ -46,33 +46,28 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  publish:
-    name: Publish a release
-    runs-on: "ubuntu-22.04"
-    needs:
-      - build
+  publish-pages:
+    name: Publish Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fork'
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Get our distributables
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dist
-          path: dist/*
-          if-no-files-found: error
+          path: dist
+        
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
 
-
-      - name: Upload server release
-        uses: svenstaro/upload-release-action@v2
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
         with:
-          repo_token: ${{ secrets.PAT }}
-          file: ./dist/*/*
-          file_glob: true
-          tag: ${{ github.ref }}
+          path: './dist'
 
-      - name: Upload latest manifest
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.PAT }}
-          file: ./distributables/latest-manifest/*
-          file_glob: true
-          tag: latest-manifest
-          overwrite: true
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
