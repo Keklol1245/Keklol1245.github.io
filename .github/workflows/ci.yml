@@ -1,45 +1,37 @@
 name: CI
 on: [push, pull_request]
 env:
-  HTTPTOOLKIT_SERVER_DISABLE_AUTOUPDATE: 1 # Don't try to autoupdate during tests etc
+  UI_VERSION: ${{ github.sha }}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 jobs:
   build:
-    name: Build & test
+    name: Build
     runs-on: ubuntu-latest
-    container:
-      image: httptoolkit/act-build-base:v3.0.0
+    container: httptoolkit/act-build-base:v3.0.0
     steps:
       - uses: actions/checkout@v4
 
+      # Install Node
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.11.1
+          node-version: 18
+          cache: 'npm'
 
-      - run: npm install -g npm@^8
+      - run: npm install -g npm@8.5.5
 
-      - name: Set up JDK 11 for Java testing
-        uses: actions/setup-java@v4
-        with:
-          java-version: 11
-          distribution: adopt-hotspot
-
-      - run: npm ci
-        env:
-          NPM_CONFIG_UNSAFE_PERM: true
-
-      - run: npm run build
-
+      # Install & build:
       - run: |
-          curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-          curl -sL https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full xterm
+          sudo apt update
+          sudo apt install -y cmake
+          npm ci
 
-      - run: npm run build:default
-        env:
-          NPM_CONFIG_UNSAFE_PERM: true
+      - name: Build
+        run: npm run build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3
         with:
           name: dist
           path: dist/*
@@ -53,16 +45,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v3
         with:
           name: dist
           path: dist
         
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v3
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v1 
         with:
           path: './dist'
 
